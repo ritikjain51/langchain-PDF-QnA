@@ -6,3 +6,4 @@ pypdf
 openai
 huggingface-hub
 gradio
+psutil
