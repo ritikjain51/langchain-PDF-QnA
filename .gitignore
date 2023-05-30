@@ -1,3 +1,4 @@
 .Chroma
+.chroma
 *.ipynb
 *.pyc
