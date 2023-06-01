@@ -13,6 +13,7 @@ RUN apt-get update && apt install python3-dev build-essential -y
 
 COPY . .
 RUN pip install --upgrade pip
+RUN pip install duckdb
 RUN pip install -r requirements.txt
 EXPOSE 8071
 CMD ["gradio", "app.py"]
