@@ -31,7 +31,7 @@ def model_configuration(model_name, api_key=None, hug_model=None, hug_token=None
             return gr.update(value="Please upload correct PDF!", visible=True)
         global qa
         if model_name == "OpenAI":
-            os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY", api_key)
+            os.environ["OPENAI_API_KEY"] = api_key or os.getenv("OPENAI_API_KEY")
             embeddings = OpenAIEmbeddings()
             llm = OpenAI(temperature=1)
         elif model_name == "HuggingFace":
@@ -56,6 +56,7 @@ def response(msg, chat_history):
     result = qa({"question": msg, "chat_history": map(tuple, chat_history)})
     final_resp = result.get("answer", "").strip()
     chat_history.append((msg, final_resp))
+    docs = result.get("source_documents")
     return "", chat_history
 
 
