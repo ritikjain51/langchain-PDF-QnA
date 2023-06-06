@@ -1,22 +1,23 @@
----
-title: Pdf Question Answering
-emoji: 🔥
-colorFrom: blue
-colorTo: pink
-sdk: gradio
-sdk_version: 3.32.0
-app_file: app.py
-pinned: false
-license: mit
----
+## Next Steps
 
-### Next stage:
-- [x] Gradio & Langchain backend
-- [x] Dockerize packages
-- [x] Add UI ingest upload file
-- [x] Add Advance Model Settings
-- [x] Add github Trigger
-- [ ] Add login page
-- [ ] Add docs
+- [x] Build UI using Streamlit
+- [x] Add Advance Settings in sidebar
+- [x] Build backend using Langchain
+- [x] Dockerize 
+- [ ] Add Docs
 
-Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
+
+### UI Components
+
+- [x] Add Upload PDF Tab
+- [x] Show PDF Tab
+- [x] Question Answer Tab
+- [x] Conversational Tab
+- [x] Advance Settings
+- [x] Model Settings
+
+### Backend Components
+- [x] Read PDF and ingest
+- [x] Fetch Configuration 
+- [x] Vector DB Indexing
+- [x] 

@@ -1,130 +1,171 @@
-import logging
-import os
+import base64
 
-import gradio as gr
-from langchain import OpenAI, HuggingFaceHub
-from langchain.chains import ConversationalRetrievalChain
-from langchain.document_loaders import PyPDFLoader
-from langchain.embeddings import OpenAIEmbeddings, HuggingFaceEmbeddings
-from langchain.text_splitter import CharacterTextSplitter
-from langchain.vectorstores import Chroma
+import streamlit as st
+from streamlit_chat import message
+from streamlit_extras.colored_header import colored_header
 
-documents = []
-qa = None
+from backend import QnASystem
+from schema import TransformType, EmbeddingTypes, IndexerType, BotType
 
+kwargs = {}
+source_docs = []
+st.set_page_config(page_title="PDFChat - An LLM-powered experimentation app")
 
-def get_file(file):
-    try:
-        global documents
-        data = PyPDFLoader(file.name)
-        documents = data.load_and_split(CharacterTextSplitter(chunk_size=2000, chunk_overlap=0))
-    except Exception as e:
-        logging.error(e, exc_info=True)
-        return "Failed to upload."
-    return "File Uploaded."
+if "qna_system" not in st.session_state:
+    st.session_state.qna_system = QnASystem()
 
 
-def model_configuration(model_name, api_key=None, hug_model=None, hug_token=None, temperature=0, max_length=512):
-    try:
-        embeddings, llm = None, None
-        if not documents:
-            return gr.update(value="Please upload correct PDF!", visible=True)
-        global qa
-        if model_name == "OpenAI":
-            os.environ["OPENAI_API_KEY"] = api_key or os.getenv("OPENAI_API_KEY")
-            embeddings = OpenAIEmbeddings()
-            llm = OpenAI(temperature=temperature, max_tokens=max_length)
-        elif model_name == "HuggingFace":
-            os.environ["HUGGINGFACEHUB_API_TOKEN"] = hug_token or os.getenv("HUGGINGFACE_API_KEY")
-            embeddings = HuggingFaceEmbeddings(model_name=hug_model, model_kwargs={'device': 'cpu'})
-            llm = HuggingFaceHub(repo_id=hug_model, model_kwargs={"temperature": temperature, "max_length": max_length})
-
-        if embeddings:
-            db = Chroma.from_documents(documents, embeddings)
-            retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 2})
-            qa = ConversationalRetrievalChain.from_llm(llm, chain_type="map_reduce", retriever=retriever,
-                                                       return_source_documents=True, verbose=False)
-    except Exception as e:
-        logging.error(e, exc_info=True)
-        return gr.update(value="Error occurred!", visible=True)
-    return gr.update(value="Model Built", visible=True)
+def show_pdf(f):
+    f.seek(0)
+    base64_pdf = base64.b64encode(f.read()).decode('utf-8')
+    pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="700" height="800" ' \
+                  f'type="application/pdf"></iframe>'
+    st.markdown(pdf_display, unsafe_allow_html=True)
 
 
-def response(msg, chat_history):
-    global qa
-    result = qa({"question": msg, "chat_history": map(tuple, chat_history)})
-    final_resp = result.get("answer", "").strip()
-    chat_history.append((msg, final_resp))
-    docs = result.get("source_documents")
-    return "", chat_history
+def model_settings():
+    kwargs["temperature"] = st.slider("Temperature", max_value=1.0, min_value=0.0)
+    kwargs["max_tokens"] = st.number_input("Max Token", min_value=0, value=512)
 
 
-with gr.Blocks() as demo:
-    with gr.Tab("PDF Ingestion") as pdf_input:
-        file = None
-        with gr.Column() as r1:
-            file = gr.File(file_types=[".pdf"])
-            op_txt = gr.Label(value="", label="")
-            fl_btn = gr.Button("Upload & Ingest 🚀")
-            fl_btn.click(get_file, inputs=[file], outputs=op_txt)
+st.title("PDF Question and Answering")
 
-    with gr.Tab("Select Model") as model:
-        model_name = gr.Dropdown(
-            ["NA", "OpenAI", "HuggingFace"],
-            show_label=True,
-            label="Model Name",
-            multiselect=False,
-            value="NA"
-        )
-        with gr.Column(visible=False) as openai_config:
-            api_key = gr.Textbox(value="", label="OPENAI API KEY", placeholder="sk-...", visible=True, interactive=True)
+tab1, tab2, tab3 = st.tabs(["Upload and Ingest PDF", "Ask", "Show PDF"])
 
-        with gr.Column(visible=False) as huggy_config:
-            hug_model = gr.Dropdown(["google/flan-t5-xl"],
-                                    value="google/flan-t5-xl", multiselect=False)
-            hug_token = gr.Textbox(value="", placeholder="hf-...", interactive=True)
+with st.sidebar:
+    st.header("Advance Setting ⚙️")
+    require_pdf = st.checkbox("Show PDF", value=1)
+    st.markdown('---')
+    kwargs["bot_type"] = st.selectbox("Bot Type", options=BotType)
+    st.markdown("---")
+    st.text("Model Parameters")
+    kwargs["return_documents"] = st.checkbox("Require Source Documents", value=True)
+    text_transform = st.selectbox("Text Transformer", options=TransformType)
+    st.markdown("---")
+    selected_model = st.selectbox("Select Model", options=EmbeddingTypes)
+    match selected_model:
+        case EmbeddingTypes.OPENAI:
+            api_key = st.text_input("OpenAI API Key", placeholder="sk-...", type="password")
+            if not api_key.startswith('sk-'):
+                st.warning('Please enter your OpenAI API key!', icon='⚠')
+            model_settings()
+        case EmbeddingTypes.HUGGING_FACE:
+            api_key = st.text_input("Hugging Face API Key", placeholder="hg-...", type="password")
+            if not api_key.startswith('hg-'):
+                st.warning('Please enter your HuggingFace API key!', icon='⚠')
+            huggingface_model = st.selectbox("Choose Model", options=["google/flan-t5-xl"])
+            model_settings()
+        case EmbeddingTypes.COHERE:
+            api_key = st.text_input("Cohere API Key", placeholder="...", type="password")
+            if not api_key:
+                st.warning('Please enter your Cohere API key!', icon='⚠')
+            model_settings()
+        case _:
+            api_key = None
+    kwargs["api_key"] = api_key
+    st.markdown("---")
 
-        with gr.Accordion("Advance Settings", open=False, visible=False) as advance_settings:
-            temperature = gr.Slider(0, 1, label="Temperature")
-            max_length = gr.components.Number(value=512, label="Max Token Length")
+    vector_indexer = st.selectbox("Vector Indexer", options=IndexerType)
+    match vector_indexer:
+        case IndexerType.ELASTICSEARCH:
+            kwargs["elasticsearch_url"] = st.text_input("Elastic Search URL: ")
+            if not kwargs.get("elasticsearch_url"):
+                st.warning("Please enter your elastic search url", icon='⚠')
+            kwargs["elasticsearch_index"] = st.text_input("Elastic Search Index: ")
+            if not kwargs.get("elasticsearch_index"):
+                st.warning("Please enter your elastic search index", icon='⚠')
+
+    st.markdown("---")
+    st.text("Chain Settings")
+    kwargs["chain_type"] = st.selectbox("Chain Type", options=["stuff", "map_reduce"])
+    kwargs["search_type"] = st.selectbox("Search Type", options=["similarity"])
+    st.markdown("---")
+
+with tab1:
+    uploaded_file = st.file_uploader("Upload and Ingest PDF 🚀", type="pdf")
+    if uploaded_file:
+        with st.spinner("Uploading and Ingesting"):
+            documents = st.session_state.qna_system.read_and_load_pdf(uploaded_file)
+            if selected_model == EmbeddingTypes.NA:
+                st.warning("Please select the model", icon='⚠')
+            else:
+                st.session_state.qna_system.build_chain(transform_type=text_transform, embedding_type=selected_model,
+                                                        indexer_type=vector_indexer, **kwargs)
 
 
-        def show_configuration(model_name):
-            match model_name:
-                case "OpenAI":
-                    return {
-                        openai_config: gr.update(visible=True),
-                        huggy_config: gr.update(visible=False),
-                        advance_settings: gr.update(visible=True)
-                    }
-                case "HuggingFace":
-                    return {
-                        openai_config: gr.update(visible=False),
-                        huggy_config: gr.update(visible=True),
-                        advance_settings: gr.update(visible=True)
-                    }
-                case _:
-                    return {
-                        openai_config: gr.update(visible=False),
-                        huggy_config: gr.update(visible=False),
-                        advance_settings: gr.update(visible=False)
-                    }
+def generate_response(prompt):
+    if prompt and uploaded_file:
+        response = st.session_state.qna_system.ask_question(prompt)
+        return response.get("answer", response.get("result", "")), response.get("source_documents")
+    return "", []
 
 
-        model_name.change(show_configuration, inputs=[model_name],
-                          outputs=[openai_config, huggy_config, advance_settings])
-        model_updated = gr.Label("", show_label=False, visible=True)
-        btn = gr.Button("Configure Model 🤖")
-        btn.click(model_configuration, inputs=[model_name, api_key, hug_model, hug_token, temperature, max_length],
-                  outputs=model_updated)
+with tab2:
+    if not uploaded_file:
+        st.warning("Please upload PDF", icon='⚠')
+    else:
+        match kwargs["bot_type"]:
+            case BotType.qna:
+                with st.container():
+                    with st.form('my_form'):
+                        text = st.text_area("", placeholder='Ask me...')
+                        submitted = st.form_submit_button('Submit')
+                        if text:
+                            st.write(f"Question:\n{text}")
+                            response, source_docs = generate_response(text)
+                            st.write(response)
+            case BotType.conversational:
+                # Generate empty lists for generated and past.
+                ## generated stores AI generated responses
+                if 'generated' not in st.session_state:
+                    st.session_state['generated'] = ["Hi! I'm PDF Assistant 🤖, How may I help you?"]
+                ## past stores User's questions
+                if 'past' not in st.session_state:
+                    st.session_state['past'] = ['Hi!']
 
-    with gr.Tab("Q&A") as qna:
-        with gr.Column() as r:
-            chatbot = gr.Chatbot(show_label=True)
-            msg = gr.Textbox(placeholder="Ask Something")
-            clear = gr.Button("Clear")
-            msg.submit(response, [msg, chatbot], [msg, chatbot])
-            clear.click(lambda: None, None, chatbot, queue=False)
+                input_container = st.container()
+                colored_header(label='', description='', color_name='blue-30')
+                response_container = st.container()
+                response = ""
 
-if __name__ == "__main__":
-    demo.launch()
+
+                def get_text():
+                    input_text = st.text_input("You: ", "", key="input")
+                    return input_text
+
+
+                with input_container:
+                    user_input = get_text()
+                    if st.button("Clear"):
+                        st.session_state.generated.clear()
+                        st.session_state.past.clear()
+
+                with response_container:
+                    if user_input:
+                        response, source_docs = generate_response(user_input)
+                        st.session_state.past.append(user_input)
+                        st.session_state.generated.append(response)
+
+                    if st.session_state['generated']:
+                        for i in range(len(st.session_state['generated'])):
+                            message(st.session_state['past'][i], is_user=True, key=str(i) + '_user')
+                            message(st.session_state["generated"][i], key=str(i))
+
+        require_document = st.container()
+        if kwargs["return_documents"]:
+            with require_document:
+                with st.expander("Related Documents", expanded=False):
+                    for source in source_docs:
+                        metadata = source.metadata
+                        st.write("{source} - {page_no}".format(source=metadata.get("source"),
+                                                               page_no=metadata.get("page_no")))
+                        st.write(source.page_content)
+                        st.markdown("---")
+
+with tab3:
+    if require_pdf and uploaded_file:
+        show_pdf(uploaded_file)
+    elif uploaded_file:
+        st.warning("Feature not enabled.", icon='⚠')
+    else:
+        st.warning("Please upload PDF", icon='⚠')

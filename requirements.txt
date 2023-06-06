@@ -1,9 +1,0 @@
-langchain
-chromadb
-tiktoken
-sentence-transformers
-pypdf
-openai
-huggingface-hub
-gradio
-psutil

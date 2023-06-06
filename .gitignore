@@ -1,4 +1,6 @@
 .Chroma
+.idea
+.faiss
 .chroma
 *.ipynb
 *.pyc
