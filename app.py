@@ -2,10 +2,10 @@ import logging
 import os
 
 import gradio as gr
-from langchain import OpenAI
+from langchain import OpenAI, HuggingFaceHub
 from langchain.chains import ConversationalRetrievalChain
 from langchain.document_loaders import PyPDFLoader
-from langchain.embeddings import OpenAIEmbeddings
+from langchain.embeddings import OpenAIEmbeddings, HuggingFaceEmbeddings
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.vectorstores import Chroma
 
@@ -24,7 +24,7 @@ def get_file(file):
     return "File Uploaded."
 
 
-def model_configuration(model_name, api_key=None, hug_model=None, hug_token=None):
+def model_configuration(model_name, api_key=None, hug_model=None, hug_token=None, temperature=0, max_length=512):
     try:
         embeddings, llm = None, None
         if not documents:
@@ -33,12 +33,11 @@ def model_configuration(model_name, api_key=None, hug_model=None, hug_token=None
         if model_name == "OpenAI":
             os.environ["OPENAI_API_KEY"] = api_key or os.getenv("OPENAI_API_KEY")
             embeddings = OpenAIEmbeddings()
-            llm = OpenAI(temperature=1)
+            llm = OpenAI(temperature=temperature, max_tokens=max_length)
         elif model_name == "HuggingFace":
-            return gr.update(value="Hugging Face is not yet supported!", visible=True)
-            os.environ["HUGGINGFACEHUB_API_TOKEN"] = os.getenv("", hug_token)
-            # embeddings = HuggingFaceEmbeddings(model_name=hug_model, model_kwargs={'device': 'cpu'})
-            # llm = HuggingFaceHub(repo_id=hug_model)
+            os.environ["HUGGINGFACEHUB_API_TOKEN"] = hug_token or os.getenv("HUGGINGFACE_API_KEY")
+            embeddings = HuggingFaceEmbeddings(model_name=hug_model, model_kwargs={'device': 'cpu'})
+            llm = HuggingFaceHub(repo_id=hug_model, model_kwargs={"temperature": temperature, "max_length": max_length})
 
         if embeddings:
             db = Chroma.from_documents(documents, embeddings)
@@ -81,32 +80,43 @@ with gr.Blocks() as demo:
             api_key = gr.Textbox(value="", label="OPENAI API KEY", placeholder="sk-...", visible=True, interactive=True)
 
         with gr.Column(visible=False) as huggy_config:
-            hug_model = gr.Dropdown(["distilbert-base-uncased"],
-                                    value="distilbert-base-uncased", multiselect=False)
+            hug_model = gr.Dropdown(["google/flan-t5-xl"],
+                                    value="google/flan-t5-xl", multiselect=False)
             hug_token = gr.Textbox(value="", placeholder="hf-...", interactive=True)
+
+        with gr.Accordion("Advance Settings", open=False, visible=False) as advance_settings:
+            temperature = gr.Slider(0, 1, label="Temperature")
+            max_length = gr.components.Number(value=512, label="Max Token Length")
 
 
         def show_configuration(model_name):
-            if model_name == "OpenAI":
-                return {
-                    openai_config: gr.update(visible=True),
-                    huggy_config: gr.update(visible=False)
-                }
-            elif model_name == "HuggingFace":
-                return {
-                    openai_config: gr.update(visible=False),
-                    huggy_config: gr.update(visible=True)
-                }
-            return {
-                openai_config: gr.update(visible=False),
-                huggy_config: gr.update(visible=False)
-            }
+            match model_name:
+                case "OpenAI":
+                    return {
+                        openai_config: gr.update(visible=True),
+                        huggy_config: gr.update(visible=False),
+                        advance_settings: gr.update(visible=True)
+                    }
+                case "HuggingFace":
+                    return {
+                        openai_config: gr.update(visible=False),
+                        huggy_config: gr.update(visible=True),
+                        advance_settings: gr.update(visible=True)
+                    }
+                case _:
+                    return {
+                        openai_config: gr.update(visible=False),
+                        huggy_config: gr.update(visible=False),
+                        advance_settings: gr.update(visible=False)
+                    }
 
 
-        model_name.change(show_configuration, inputs=[model_name], outputs=[openai_config, huggy_config])
-        model_updated = gr.Label("", visible=False)
+        model_name.change(show_configuration, inputs=[model_name],
+                          outputs=[openai_config, huggy_config, advance_settings])
+        model_updated = gr.Label("", show_label=False, visible=True)
         btn = gr.Button("Configure Model 🤖")
-        btn.click(model_configuration, inputs=[model_name, api_key, hug_model, hug_token], outputs=model_updated)
+        btn.click(model_configuration, inputs=[model_name, api_key, hug_model, hug_token, temperature, max_length],
+                  outputs=model_updated)
 
     with gr.Tab("Q&A") as qna:
         with gr.Column() as r:

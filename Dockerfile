@@ -9,7 +9,7 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DEFAULT_TIMEOUT=100 \
     HNSWLIB_NO_NATIVE=1
 
-RUN apt-get update && apt install python3-dev build-essential -y
+RUN apt-get update && apt install python3-dev libprotobuf-dev build-essential -y
 
 COPY . .
 RUN pip install --upgrade pip

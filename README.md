@@ -14,6 +14,7 @@ license: mit
 - [x] Gradio & Langchain backend
 - [x] Dockerize packages
 - [x] Add UI ingest upload file
+- [x] Add Advance Model Settings
 - [x] Add github Trigger
 - [ ] Add login page
 - [ ] Add docs
